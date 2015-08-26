@@ -14,6 +14,7 @@ You can create the context based categorization for multiclass classification da
 ## Tips
 
 ### How to the contents of the file to random
+ Amazon Machine Learning used 70% of the data for training and 30% to evaluate the model based on the defaults.
 
 ```bash
   $ (head -n +1 sample.csv && tail -n +2 sample.csv | sort -R) > sorted_sample.csv
