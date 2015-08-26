@@ -1,0 +1,27 @@
+{
+  "name": "ml-generator",
+  "main": "./lib/ml-generator",
+  "version": "0.0.0",
+  "description": "Creating the data source for Amazon Machine Learning from elasticsearch.",
+  "keywords": [
+    "amazon",
+    "elasticsearch",
+    "machine learning",
+  ],
+  "activationCommands": {
+    "atom-workspace": [
+      "ml-generator:create-ml-data-source",
+      "ml-generator:update-statistics-target-terms"
+    ]
+  },
+  "repository": "https://github.com/KunihikoKido/atom-ml-generator",
+  "license": "MIT",
+  "engines": {
+    "atom": ">=1.0.0 <2.0.0"
+  },
+  "dependencies": {
+    "fs-plus": "^2.8.1",
+    "elasticsearch": "^6.0.0",
+    "loophole": "^1.0.0"
+  }
+}
