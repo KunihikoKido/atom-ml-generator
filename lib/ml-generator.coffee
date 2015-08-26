@@ -150,9 +150,6 @@ module.exports = MlGenerator =
       headers.push("term#{i}") for i in [1..terms.length]
       fs.writeFileSync(fileName, headers.join(',') + '\r\n')
 
-    randomSeed = ({max} = {max: 100}) ->
-      Math.floor(Math.random() * max) + 1
-
     includeFields = ->
       includeFields = config.getIncludeFields()
       includeFields.push(config.getClassFieldName())
@@ -175,10 +172,9 @@ module.exports = MlGenerator =
       scroll: '30s'
       body:
         query: filtered:
-          query: function_score: random_score: seed: randomSeed()
+          query: match_all: {}
           filter: exists: field: config.getClassFieldName()
         fields: includeFields()
-        sort: _score: 'desc'
 
     maxDocs = config.getMaxDocs()
     count = 0
