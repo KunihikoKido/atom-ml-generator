@@ -5,37 +5,31 @@ dialog = remote.require "dialog"
 {allowUnsafeNewFunction} = require 'loophole'
 elasticsearch = allowUnsafeNewFunction -> require 'elasticsearch'
 
-tfidf = (tf, df, n_docs) ->
-  idf = Math.log(n_docs / df)
-  return tf * idf
-
 config =
-  getClassFieldName: ->
-    atom.config.get('ml-generator.classFieldName')
+  getCategoryField: ->
+    atom.config.get('ml-generator.categoryField')
   getDocType: ->
     atom.config.get('ml-generator.docType')
-  getFieldName: ->
-    atom.config.get('ml-generator.fieldName')
+  getStatisticsTargetField: ->
+    atom.config.get('ml-generator.statisticsTargetField')
   getHost: ->
     atom.config.get('ml-generator.host')
   getIndex: ->
     atom.config.get('ml-generator.index')
   getMaxDocs: ->
     atom.config.get('ml-generator.maxDocs')
-  getmaxTerms: ->
-    atom.config.get('ml-generator.maxTerms')
+  getStatisticsMaxTerms: ->
+    atom.config.get('ml-generator.statisticsMaxTerms')
   getStatisticsTargetTerms: ->
     atom.config.get('ml-generator.statisticsTargetTerms')
-  getIncludeFields: ->
-    atom.config.get('ml-generator.includeFields')
   setStatisticsTargetTerms: (terms) ->
     atom.config.set('ml-generator.statisticsTargetTerms', terms)
 
 
 notifications =
   packageName: 'ML Generator'
-  addInfo: (message) ->
-    atom.notifications?.addInfo("#{@packageName}: #{message}")
+  addInfo: (message, {detail}={}) ->
+    atom.notifications?.addInfo("#{@packageName}: #{message}", detail: detail)
   addError: (message, {detail}={}) ->
     atom.notifications.addError(
       "#{@packageName}: #{message}", detail: detail, dismissable: true)
@@ -53,6 +47,11 @@ showSaveDialog = () ->
   return fileName
 
 
+elasticsearchClient = () ->
+  client = new elasticsearch.Client(host: config.getHost())
+  return client
+
+
 module.exports = MlGenerator =
   subscriptions: null
 
@@ -66,32 +65,30 @@ module.exports = MlGenerator =
     docType:
       type: 'string'
       default: 'posts'
-    fieldName:
-      type: 'string'
-      default: 'title'
-      title: 'Statistics Target Field'
-    classFieldName:
+    categoryField:
       type: 'string'
       default: 'category'
-      title: 'Classification Field'
+      description: 'Categoraization field of elasticsearch'
     maxDocs:
       type: 'integer'
-      default: 1000
+      default: 10000
+    statisticsTargetField:
+      type: 'string'
+      default: 'title'
+      description: 'Statistics target field of elasticsearch'
     statisticsTargetTerms:
       type: 'array'
       default: []
-    maxTerms:
+      description: 'Setup manual or Run `Update Statistics Target Terms` command.'
+    statisticsMaxTerms:
       type: 'integer'
       default: 50
-      description: 'Statistics target terms maximum number of each classification'
-    includeFields:
-      type: 'array'
-      default: []
+      description: 'Statistics target terms maximum number of each categories'
 
 
   activate: (state) ->
     @subscriptions = new CompositeDisposable
-    @subscriptions.add atom.commands.add 'atom-workspace', "ml-generator:create-ml-data-source": => @createMlDataSourceCommand()
+    @subscriptions.add atom.commands.add 'atom-workspace', "ml-generator:create": => @createCommand()
     @subscriptions.add atom.commands.add 'atom-workspace', "ml-generator:update-statistics-target-terms": => @updateStatisticsTargetTermsCommand()
 
   deactivate: ->
@@ -99,61 +96,49 @@ module.exports = MlGenerator =
 
   serialize: ->
 
-  Client: ->
-    client = new elasticsearch.Client(host: config.getHost())
-    return client
-
   updateStatisticsTargetTermsCommand: ->
-    client = @Client()
+    client = elasticsearchClient()
 
     options =
       index: config.getIndex()
       type: config.getDocType()
       searchType: 'count'
       body:
-        query: match_all: {}
-        aggs: classes:
+        query: filtered:
+          query: match_all: {}
+          filter: exists: field: config.getCategoryField()
+        aggs: categories:
           terms:
-            field: config.getClassFieldName()
-          aggs: significantClassTerms:
+            field: config.getCategoryField()
+          aggs: significantTerms:
             significant_terms:
-              field: config.getFieldName()
-              size: config.getmaxTerms()
+              field: config.getStatisticsTargetField()
+              size: config.getStatisticsMaxTerms()
 
     client.search(options).then((response) ->
-      classBuckets = (response) -> response.aggregations.classes.buckets
-      termBuckets = (classBucket) -> classBucket.significantClassTerms.buckets
-
       terms = []
-      for classesBucket in classBuckets(response)
-        for termsBukket in termBuckets(classesBucket)
-          terms.push(termsBukket.key)
+      for category in response.aggregations.categories.buckets
+        for term in category.significantTerms.buckets
+          terms.push(term.key)
       config.setStatisticsTargetTerms(terms)
-
+      return terms
     ).catch((error) ->
-      notifications.addError("Error update statistics target terms", detail: error)
-    ).then(->
-      notifications.addInfo("Statistics target terms updated.")
+      notifications.addError(
+        "Error update statistics target terms", detail: error)
+    ).then((terms)->
+      notifications.addInfo(
+        "Statistics target terms updated.",
+        detail: "#{terms[..10]}... #{terms.length} terms")
     )
 
-  createMlDataSourceCommand: ->
+  createCommand: ->
     isEnabled = ->
-      statisticsTargetTerms = config.getStatisticsTargetTerms()
-      if statisticsTargetTerms.length is 0
-        return false
-      return true
+      return config.getStatisticsTargetTerms().length isnt 0
 
     writeCsvHeader = (fileName) ->
-      headers = ['id', 'class']
-      headers.push(f.replace(/\./g, '_')) for f in config.getIncludeFields()
-      terms = config.getStatisticsTargetTerms()
-      headers.push("term#{i}") for i in [1..terms.length]
+      headers = ['DocumentId', 'Category']
+      headers.push("Term#{(("000") + i).substr(-3)}") for i in [1..config.getStatisticsTargetTerms().length]
       fs.writeFileSync(fileName, headers.join(',') + '\r\n')
-
-    includeFields = ->
-      includeFields = config.getIncludeFields()
-      includeFields.push(config.getClassFieldName())
-      return includeFields
 
     return notifications.addInfo(
       "Please setup of significant terms at the first.") unless isEnabled()
@@ -163,7 +148,7 @@ module.exports = MlGenerator =
 
     writeCsvHeader(fileName)
 
-    client = @Client()
+    client = elasticsearchClient()
 
     options =
       index: config.getIndex()
@@ -173,27 +158,26 @@ module.exports = MlGenerator =
       body:
         query: filtered:
           query: match_all: {}
-          filter: exists: field: config.getClassFieldName()
-        fields: includeFields()
+          filter: exists: field: config.getCategoryField()
+        fields: [config.getCategoryField()]
 
-    maxDocs = config.getMaxDocs()
     count = 0
     client.search(options).then((response) ->
       return response._scroll_id
     ).then((scrollId) ->
       return client.scroll(scrollId: scrollId, scroll: '30s')
     ).then(getMoreUntileDone = (response) ->
-      return if response.hits.hits.length is 0 or count >= maxDocs
+      return if response.hits.hits.length is 0 or count >= config.getMaxDocs()
 
-      scrollId = response._scroll_id
       count += response.hits.hits.length
 
-      classFieldName = config.getClassFieldName()
-      docClasses = {}
-      for doc in response.hits.hits
-        docClasses[doc._id] = doc.fields[classFieldName].join(';')
+      scrollId = response._scroll_id
 
-      searchDocs = response.hits.hits
+      docFields = {}
+      for doc in response.hits.hits
+        docFields[doc._id] = {}
+        for field, values of doc.fields
+          docFields[doc._id][field] = values.join(';')
 
       options =
         index: config.getIndex()
@@ -203,38 +187,26 @@ module.exports = MlGenerator =
           parameters:
             term_statistics: true
             field_statistics: true
-            fields: [config.getFieldName()]
+            fields: [config.getStatisticsTargetField()]
 
       client.mtermvectors(options).then((response) ->
-        getFieldValue = (id, name) ->
-          return doc.fields[name].join(';') if doc._id is id for doc in searchDocs
-
-        classFieldName = config.getClassFieldName()
-        fieldName = config.getFieldName()
-        includeFields = config.getIncludeFields()
-        statisticsTargetTerms = config.getStatisticsTargetTerms()
-
-        for tvDoc in response.docs
-          items = [tvDoc._id, getFieldValue(tvDoc._id, classFieldName)]
-          items.push(getFieldValue(tvDoc._id, name)) for name in includeFields
-
-          field = tvDoc.term_vectors[fieldName]
-          for term in statisticsTargetTerms
-            weight = 0.0
-            if field.terms[term]
-              term = field.terms[term]
-              tf = term.term_freq
-              df = term.doc_freq
-              n_docs = field.field_statistics.doc_count
-              weight = tfidf(tf, df, n_docs)
-            items.push(weight)
-
+        for doc in response.docs
+          items = [doc._id, docFields[doc._id][config.getCategoryField()]]
+          for field, vectors of doc.term_vectors
+            for term in config.getStatisticsTargetTerms()
+              term_statistics = vectors.terms[term]
+              if term_statistics
+                items.push(term_statistics.term_freq)
+              else
+                items.push(0)
           fs.appendFile(fileName, items.join(',') + '\r\n')
 
         client.scroll(scrollId: scrollId, scroll: '30s').then(getMoreUntileDone)
       )
+
+      return fileName
     ).catch((error) ->
       notifications.addError("Error Create Data Source", detail: error)
-    ).then(->
-      notifications.addInfo("Data source created.")
+    ).then((fileName) ->
+      notifications.addInfo("Data source created.", detail: fileName)
     )

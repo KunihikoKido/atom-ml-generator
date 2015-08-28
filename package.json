@@ -10,7 +10,7 @@
   ],
   "activationCommands": {
     "atom-workspace": [
-      "ml-generator:create-ml-data-source",
+      "ml-generator:create",
       "ml-generator:update-statistics-target-terms"
     ]
   },
