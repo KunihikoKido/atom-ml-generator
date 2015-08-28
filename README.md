@@ -8,7 +8,7 @@ You can create the context based categorization for multiclass classification da
 ## Commands
 
 * Ml Generator: Update Statistics Target Terms
-* Ml Generator: Create Ml Data Source
+* Ml Generator: Create
 
 
 ## Tips
