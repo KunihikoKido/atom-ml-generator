@@ -146,7 +146,12 @@ module.exports = MlGenerator =
 
   createCommand: ->
     isEnabled = ->
-      return config.getStatisticsTargetTerms().length isnt 0
+      if config.isStatisticsEnabled() is false
+        return true
+      if config.isStatisticsEnabled() and
+          config.getStatisticsTargetTerms().length isnt 0
+        return true
+      return false
 
     writeCsvHeader = (fileName) ->
       headers = ['id']
